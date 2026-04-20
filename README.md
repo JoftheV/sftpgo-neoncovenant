@@ -1,5 +1,7 @@
 # sftpgo-neoncovenant
 
+[![Validate SFTPGo Config](https://github.com/JoftheV/sftpgo-neoncovenant/actions/workflows/validate.yml/badge.svg)](https://github.com/JoftheV/sftpgo-neoncovenant/actions/workflows/validate.yml)
+
 Automation script for configuring SFTPGo virtual folders on `neoncovenant.appboxes.co` with Cloudflare mTLS client certificate enforcement and 1 GB upload quota.
 
 ---
@@ -21,8 +23,54 @@ Automation script for configuring SFTPGo virtual folders on `neoncovenant.appbox
 ## Files
 
 ```
-sftpgo_setup.sh   — Full API automation script (create folder, user, quota, verify)
-README.md         — This file
+sftpgo_setup.sh                       — Full API automation script (create folder, user, quota, verify)
+validate_api.sh                       — Regression test script (used by CI, also runnable locally)
+.github/workflows/validate.yml        — GitHub Actions CI workflow
+README.md                             — This file
+```
+
+---
+
+## CI / GitHub Actions
+
+The workflow in `.github/workflows/validate.yml` runs on every push and pull request.
+It performs 7 sequential checks against the live SFTPGo instance:
+
+| Step | Check | Catches |
+|---|---|---|
+| 1 | Shellcheck lint | Syntax errors in scripts |
+| 2 | Admin JWT auth | Wrong password, API down, auth regression |
+| 3 | Host reachability | Appbox offline, DNS failure |
+| 4 | Virtual folder existence | Folder deleted or renamed |
+| 5 | User quota assertions | `quota_size`, `max_upload_file_size` changed |
+| 6 | Idempotency via `validate_api.sh` | End-to-end regression across all checks |
+| 7 | Quota scan trigger | Scan endpoint broken or returning errors |
+
+### Required GitHub Secrets
+
+Go to **Settings → Secrets and variables → Actions → New repository secret** and add:
+
+| Secret name | Value |
+|---|---|
+| `SFTPGO_ADMIN_PASS` | SFTPGo admin account password |
+| `SFTPGO_USER_PASS` | SFTPGo `jofthev` user password |
+
+The workflow never prints these values — the admin token is masked with `::add-mask::` immediately after acquisition.
+
+### Trigger manually
+
+```bash
+# From the Actions tab → "Validate SFTPGo Config" → "Run workflow"
+# Or via CLI:
+gh workflow run validate.yml --repo JoftheV/sftpgo-neoncovenant
+```
+
+### Run validation locally
+
+```bash
+export ADMIN_PASS="YOUR_ADMIN_PASSWORD"
+export SFTPGO_USER_PASS="YOUR_USER_PASSWORD"
+bash validate_api.sh
 ```
 
 ---
