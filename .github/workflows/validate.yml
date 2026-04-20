@@ -40,7 +40,7 @@ jobs:
       issues: write
       contents: write   # required for POST /commits/{sha}/comments
     env:
-      SFTPGO_ADMIN_URL: "https://neoncovenant.appboxes.co"
+      SFTPGO_ADMIN_URL: "https://home.neoncovenant.appboxes.co"
       ADMIN_USER: "admin"
       SFTPGO_USER: "jofthev"
       FOLDER_NAME: "jofthev_data"

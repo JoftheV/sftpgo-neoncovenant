@@ -85,7 +85,7 @@ if [[ "${1:-}" == "--resolve" ]]; then
 CI run [#${RUN_NUMBER}](${RUN_URL}) passed on commit \`${SHORT_SHA}\` and auto-closed the following regression issue(s):
 
 ${ISSUE_LINKS}
-All 7 validation checks passed against \`${SFTPGO_ADMIN_URL:-https://neoncovenant.appboxes.co}\`. No action needed."
+All 7 validation checks passed against \`${SFTPGO_ADMIN_URL:-https://home.neoncovenant.appboxes.co}\`. No action needed."
 
     echo "Posting commit comment on ${SHA}..."
     gh api \

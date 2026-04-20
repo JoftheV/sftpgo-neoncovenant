@@ -17,7 +17,7 @@ set -uo pipefail
 # ---------------------------------------------------------------------------
 # Constants — keep in sync with sftpgo_setup.sh
 # ---------------------------------------------------------------------------
-SFTPGO_ADMIN_URL="${SFTPGO_ADMIN_URL:-https://neoncovenant.appboxes.co}"
+SFTPGO_ADMIN_URL="${SFTPGO_ADMIN_URL:-https://home.neoncovenant.appboxes.co}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 SFTPGO_USER="${SFTPGO_USER:-jofthev}"
 FOLDER_NAME="${FOLDER_NAME:-jofthev_data}"

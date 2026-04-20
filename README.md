@@ -2,7 +2,7 @@
 
 [![Validate SFTPGo Config](https://github.com/JoftheV/sftpgo-neoncovenant/actions/workflows/validate.yml/badge.svg)](https://github.com/JoftheV/sftpgo-neoncovenant/actions/workflows/validate.yml)
 
-Automation script for configuring SFTPGo virtual folders on `neoncovenant.appboxes.co` with Cloudflare mTLS client certificate enforcement and 1 GB upload quota.
+Automation script for configuring SFTPGo virtual folders on `home.neoncovenant.appboxes.co` with Cloudflare mTLS client certificate enforcement and 1 GB upload quota.
 
 ---
 
@@ -10,7 +10,7 @@ Automation script for configuring SFTPGo virtual folders on `neoncovenant.appbox
 
 | Item | Value |
 |---|---|
-| SFTPGo host | `https://neoncovenant.appboxes.co` |
+| SFTPGo host | `https://home.neoncovenant.appboxes.co` |
 | SFTPGo user | `jofthev` |
 | Local disk path | `/home/appbox/data/jofthev` |
 | Virtual path (SFTP) | `/data` |
@@ -99,7 +99,7 @@ brew install curl jq openssl
 Ensure `/home/appbox/data/jofthev` exists on the appbox before running:
 
 ```bash
-ssh appbox@neoncovenant.appboxes.co "mkdir -p /home/appbox/data/jofthev && chmod 750 /home/appbox/data/jofthev"
+ssh appbox@home.neoncovenant.appboxes.co "mkdir -p /home/appbox/data/jofthev && chmod 750 /home/appbox/data/jofthev"
 ```
 
 ---
@@ -109,7 +109,7 @@ ssh appbox@neoncovenant.appboxes.co "mkdir -p /home/appbox/data/jofthev && chmod
 Edit the config block at the top of `sftpgo_setup.sh` before running:
 
 ```bash
-SFTPGO_ADMIN_URL="https://neoncovenant.appboxes.co"
+SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co"
 ADMIN_USER="admin"
 ADMIN_PASS="YOUR_ADMIN_PASSWORD"
 
@@ -174,13 +174,13 @@ CF_CLIENT_CERT_FINGERPRINT="A3F2C1B09E4D7F83AA12CC56890BDEF1234567890ABCDEF12345
 
 ```bash
 # Without cert — should return 403 Forbidden
-curl -I https://neoncovenant.appboxes.co/web/admin/login
+curl -I https://home.neoncovenant.appboxes.co/web/admin/login
 
 # With cert — should return 200
 curl -I \
   --cert ~/certs/cloudflare/client.pem \
   --key  ~/certs/cloudflare/client-key.pem \
-  https://neoncovenant.appboxes.co/web/admin/login
+  https://home.neoncovenant.appboxes.co/web/admin/login
 ```
 
 ---
@@ -228,18 +228,18 @@ POST /api/v2/quotas/users/jofthev/scan
 ```bash
 ADMIN_TOKEN=$(curl -sf \
   -u "admin:YOUR_ADMIN_PASSWORD" \
-  "https://neoncovenant.appboxes.co/api/v2/token" \
+  "https://home.neoncovenant.appboxes.co/api/v2/token" \
   | jq -r '.access_token')
 
 # Scan user quota
 curl -sf -X POST \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "https://neoncovenant.appboxes.co/api/v2/quotas/users/jofthev/scan" | jq .
+  "https://home.neoncovenant.appboxes.co/api/v2/quotas/users/jofthev/scan" | jq .
 
 # Scan virtual folder quota separately
 curl -sf -X POST \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "https://neoncovenant.appboxes.co/api/v2/quotas/folders/jofthev_data/scan" | jq .
+  "https://home.neoncovenant.appboxes.co/api/v2/quotas/folders/jofthev_data/scan" | jq .
 ```
 
 ### Check current quota usage
@@ -247,7 +247,7 @@ curl -sf -X POST \
 ```bash
 curl -sf \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "https://neoncovenant.appboxes.co/api/v2/users/jofthev" \
+  "https://home.neoncovenant.appboxes.co/api/v2/users/jofthev" \
   | jq '{
       quota_size,
       used_quota_size,
@@ -273,9 +273,9 @@ PUBKEY=$(cat ~/.ssh/id_ed25519_sftpgo.pub)
 curl -sf -X PUT \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
-  "https://neoncovenant.appboxes.co/api/v2/users/jofthev" \
+  "https://home.neoncovenant.appboxes.co/api/v2/users/jofthev" \
   -d "$(curl -sf -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-    "https://neoncovenant.appboxes.co/api/v2/users/jofthev" \
+    "https://home.neoncovenant.appboxes.co/api/v2/users/jofthev" \
     | jq --arg pk "${PUBKEY}" '.public_keys = [$pk]')"
 ```
 
@@ -283,7 +283,7 @@ curl -sf -X PUT \
 
 ```sshconfig
 Host appbox-sftpgo
-    HostName        neoncovenant.appboxes.co
+    HostName        home.neoncovenant.appboxes.co
     Port            2022
     User            jofthev
     IdentityFile    ~/.ssh/id_ed25519_sftpgo
