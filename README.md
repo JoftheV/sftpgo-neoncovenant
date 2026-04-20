@@ -10,10 +10,13 @@ Automation script for configuring SFTPGo virtual folders on `home.neoncovenant.a
 
 | Item | Value |
 |---|---|
-| SFTPGo host | `https://home.neoncovenant.appboxes.co` |
+| Hostname | `home.neoncovenant.appboxes.co` |
+| WebDAV / Admin UI / REST API | port `27580` (HTTPS) |
+| FTP / FTPS | port `27579` |
+| SFTP | port `27581` |
 | SFTPGo user | `jofthev` |
 | Local disk path | `/home/appbox/data/jofthev` |
-| Virtual path (SFTP) | `/data` |
+| Virtual path (SFTP/WebDAV) | `/data` |
 | Upload quota (total) | 1 GiB (1,073,741,824 bytes) |
 | Max file size | 1 GiB per file |
 | Access control | Cloudflare mTLS — MacBook Pro client certificate |
@@ -109,7 +112,7 @@ ssh appbox@home.neoncovenant.appboxes.co "mkdir -p /home/appbox/data/jofthev && 
 Edit the config block at the top of `sftpgo_setup.sh` before running:
 
 ```bash
-SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co"
+SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co:27580"
 ADMIN_USER="admin"
 ADMIN_PASS="YOUR_ADMIN_PASSWORD"
 
@@ -174,13 +177,13 @@ CF_CLIENT_CERT_FINGERPRINT="A3F2C1B09E4D7F83AA12CC56890BDEF1234567890ABCDEF12345
 
 ```bash
 # Without cert — should return 403 Forbidden
-curl -I https://home.neoncovenant.appboxes.co/web/admin/login
+curl -I https://home.neoncovenant.appboxes.co:27580/web/admin/login
 
 # With cert — should return 200
 curl -I \
   --cert ~/certs/cloudflare/client.pem \
   --key  ~/certs/cloudflare/client-key.pem \
-  https://home.neoncovenant.appboxes.co/web/admin/login
+  https://home.neoncovenant.appboxes.co:27580/web/admin/login
 ```
 
 ---
@@ -228,18 +231,18 @@ POST /api/v2/quotas/users/jofthev/scan
 ```bash
 ADMIN_TOKEN=$(curl -sf \
   -u "admin:YOUR_ADMIN_PASSWORD" \
-  "https://home.neoncovenant.appboxes.co/api/v2/token" \
+  "https://home.neoncovenant.appboxes.co:27580/api/v2/token" \
   | jq -r '.access_token')
 
 # Scan user quota
 curl -sf -X POST \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "https://home.neoncovenant.appboxes.co/api/v2/quotas/users/jofthev/scan" | jq .
+  "https://home.neoncovenant.appboxes.co:27580/api/v2/quotas/users/jofthev/scan" | jq .
 
 # Scan virtual folder quota separately
 curl -sf -X POST \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "https://home.neoncovenant.appboxes.co/api/v2/quotas/folders/jofthev_data/scan" | jq .
+  "https://home.neoncovenant.appboxes.co:27580/api/v2/quotas/folders/jofthev_data/scan" | jq .
 ```
 
 ### Check current quota usage
@@ -247,7 +250,7 @@ curl -sf -X POST \
 ```bash
 curl -sf \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "https://home.neoncovenant.appboxes.co/api/v2/users/jofthev" \
+  "https://home.neoncovenant.appboxes.co:27580/api/v2/users/jofthev" \
   | jq '{
       quota_size,
       used_quota_size,
@@ -273,9 +276,9 @@ PUBKEY=$(cat ~/.ssh/id_ed25519_sftpgo.pub)
 curl -sf -X PUT \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
-  "https://home.neoncovenant.appboxes.co/api/v2/users/jofthev" \
+  "https://home.neoncovenant.appboxes.co:27580/api/v2/users/jofthev" \
   -d "$(curl -sf -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-    "https://home.neoncovenant.appboxes.co/api/v2/users/jofthev" \
+    "https://home.neoncovenant.appboxes.co:27580/api/v2/users/jofthev" \
     | jq --arg pk "${PUBKEY}" '.public_keys = [$pk]')"
 ```
 
@@ -284,7 +287,7 @@ curl -sf -X PUT \
 ```sshconfig
 Host appbox-sftpgo
     HostName        home.neoncovenant.appboxes.co
-    Port            2022
+    Port            27581
     User            jofthev
     IdentityFile    ~/.ssh/id_ed25519_sftpgo
     StrictHostKeyChecking yes

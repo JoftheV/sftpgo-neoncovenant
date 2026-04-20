@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # SFTPGo Virtual Folder Automation Script
-# Host:    home.neoncovenant.appboxes.co
+# Host:    home.neoncovenant.appboxes.co:27580 (WebDAV/API/Admin)
 # User:    jofthev  (maps to /home/appbox/data/jofthev)
 # Purpose: Create virtual folder, assign to user with 1 GB upload quota,
 #          and configure Cloudflare mTLS client-cert access from MacBook Pro
@@ -13,7 +13,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # 0. CONFIGURATION — edit these before running
 # ---------------------------------------------------------------------------
-SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co"   # SFTPGo web UI base URL
+SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co:27580"   # SFTPGo web UI base URL
 ADMIN_USER="admin"                                      # SFTPGo admin username
 ADMIN_PASS="YOUR_ADMIN_PASSWORD"                        # SFTPGo admin password
 
