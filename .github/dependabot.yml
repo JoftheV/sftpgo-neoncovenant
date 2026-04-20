@@ -1,0 +1,32 @@
+version: 2
+
+updates:
+  # -------------------------------------------------------------------------
+  # GitHub Actions — keeps actions/checkout and ludeeus/action-shellcheck
+  # pinned to latest patch/minor releases automatically.
+  # Dependabot opens a PR per outdated action, grouped by semver bump type.
+  # -------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 5
+    groups:
+      # Batch all Actions bumps into one PR per week rather than one per action
+      actions-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
+    reviewers:
+      - "JoftheV"
