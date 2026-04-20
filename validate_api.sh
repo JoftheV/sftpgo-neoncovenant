@@ -3,22 +3,16 @@
 # validate_api.sh — SFTPGo API regression test helper
 # Called by GitHub Actions (validate.yml) and safe to run locally.
 #
-# Validates:
-#   - Admin auth token acquisition
-#   - Virtual folder existence and mapped path
-#   - User quota_size, max_upload_file_size, virtual folder assignment
-#   - User status (active)
-#   - Virtual folder quota mirrors user quota
+# On failure, writes a structured report to ${REPORT_FILE} (default:
+# /tmp/sftpgo_failure_report.md) for the CI issue-filing step to consume.
 #
-# Environment variables (injected by Actions secrets or local export):
-#   ADMIN_PASS         — SFTPGo admin password
-#   SFTPGO_USER_PASS   — SFTPGo user password (for user-token check)
-#
-# Hardcoded constants (must match sftpgo_setup.sh config):
-#   SFTPGO_ADMIN_URL, ADMIN_USER, SFTPGO_USER, FOLDER_NAME, etc.
+# Environment variables:
+#   ADMIN_PASS         — SFTPGo admin password         [required]
+#   SFTPGO_USER_PASS   — SFTPGo user password          [optional]
+#   REPORT_FILE        — Path to write failure report  [default: /tmp/sftpgo_failure_report.md]
 # =============================================================================
 
-set -euo pipefail
+set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Constants — keep in sync with sftpgo_setup.sh
@@ -31,6 +25,7 @@ FOLDER_LOCAL_PATH="${FOLDER_LOCAL_PATH:-/home/appbox/data/jofthev}"
 FOLDER_VIRTUAL_PATH="${FOLDER_VIRTUAL_PATH:-/data}"
 EXPECTED_QUOTA_SIZE="${EXPECTED_QUOTA_SIZE:-1073741824}"
 EXPECTED_MAX_UPLOAD="${EXPECTED_MAX_UPLOAD:-1073741824}"
+REPORT_FILE="${REPORT_FILE:-/tmp/sftpgo_failure_report.md}"
 
 API="${SFTPGO_ADMIN_URL}/api/v2"
 
@@ -38,13 +33,97 @@ PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
 
+# Structured failure list — each failed check appends here
+FAILURES=()
+WARNINGS=()
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-pass()  { echo "  [PASS] $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
-fail()  { echo "  [FAIL] $*" >&2; FAIL_COUNT=$((FAIL_COUNT + 1)); }
-warn()  { echo "  [WARN] $*"; WARN_COUNT=$((WARN_COUNT + 1)); }
-header(){ echo ""; echo "── $* ──────────────────────────────────────────"; }
+pass() {
+  echo "  [PASS] $*"
+  PASS_COUNT=$((PASS_COUNT + 1))
+}
+
+fail() {
+  echo "  [FAIL] $*" >&2
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  FAILURES+=("$*")
+}
+
+warn() {
+  echo "  [WARN] $*"
+  WARN_COUNT=$((WARN_COUNT + 1))
+  WARNINGS+=("$*")
+}
+
+header() {
+  echo ""
+  echo "── $* ──────────────────────────────────────────"
+}
+
+# Write the structured failure report consumed by the issue-filing step.
+# Called at exit — always runs.
+write_report() {
+  local ts
+  ts=$(date -u '+%Y-%m-%d %H:%M UTC')
+
+  {
+    echo "## SFTPGo Regression Failure — \`${SFTPGO_USER}\` @ \`${SFTPGO_ADMIN_URL}\`"
+    echo ""
+    echo "> **Run time:** ${ts}  "
+    echo "> **Commit:** \`${GITHUB_SHA:-local}\`  "
+    echo "> **Workflow:** [${GITHUB_WORKFLOW:-local} #${GITHUB_RUN_NUMBER:-0}](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-JoftheV/sftpgo-neoncovenant}/actions/runs/${GITHUB_RUN_ID:-0})"
+    echo ""
+
+    if [[ "${FAIL_COUNT}" -gt 0 ]]; then
+      echo "### Failed checks (${FAIL_COUNT})"
+      echo ""
+      for f in "${FAILURES[@]}"; do
+        echo "- ❌ ${f}"
+      done
+      echo ""
+    fi
+
+    if [[ "${WARN_COUNT}" -gt 0 ]]; then
+      echo "### Warnings (${WARN_COUNT})"
+      echo ""
+      for w in "${WARNINGS[@]}"; do
+        echo "- ⚠️ ${w}"
+      done
+      echo ""
+    fi
+
+    echo "### Configuration expected"
+    echo ""
+    echo "| Key | Expected value |"
+    echo "|---|---|"
+    echo "| SFTPGo host | \`${SFTPGO_ADMIN_URL}\` |"
+    echo "| User | \`${SFTPGO_USER}\` |"
+    echo "| Virtual folder | \`${FOLDER_NAME}\` |"
+    echo "| Mapped path | \`${FOLDER_LOCAL_PATH}\` |"
+    echo "| Virtual path | \`${FOLDER_VIRTUAL_PATH}\` |"
+    echo "| quota_size | \`${EXPECTED_QUOTA_SIZE}\` (1 GiB) |"
+    echo "| max_upload_file_size | \`${EXPECTED_MAX_UPLOAD}\` (1 GiB) |"
+    echo ""
+    echo "### Remediation"
+    echo ""
+    echo "Run \`sftpgo_setup.sh\` to restore the expected configuration:"
+    echo ""
+    echo '```bash'
+    echo 'bash sftpgo_setup.sh'
+    echo '```'
+    echo ""
+    echo "---"
+    echo "_Auto-filed by [validate_api.sh](${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-JoftheV/sftpgo-neoncovenant}/blob/master/validate_api.sh)_"
+  } > "${REPORT_FILE}"
+
+  echo ""
+  echo "Failure report written to: ${REPORT_FILE}"
+}
+
+# Register the report writer — runs on any exit if there are failures
+trap '[[ "${FAIL_COUNT}" -gt 0 ]] && write_report' EXIT
 
 # ---------------------------------------------------------------------------
 # 1. Auth
@@ -52,7 +131,7 @@ header(){ echo ""; echo "── $* ───────────────
 header "Auth"
 
 if [[ -z "${ADMIN_PASS:-}" ]]; then
-  fail "ADMIN_PASS env var is not set. Export it or set the GitHub secret SFTPGO_ADMIN_PASS."
+  fail "ADMIN_PASS env var is not set"
   exit 1
 fi
 
@@ -63,8 +142,7 @@ RAW_AUTH=$(curl -sf --max-time 15 \
 TOKEN=$(echo "${RAW_AUTH}" | jq -r '.access_token // empty' 2>/dev/null || true)
 
 if [[ -z "${TOKEN}" ]]; then
-  fail "Admin auth failed — could not obtain JWT token"
-  echo "  Response: ${RAW_AUTH}"
+  fail "Admin auth — could not obtain JWT (wrong credentials or API unreachable)"
   exit 1
 fi
 pass "Admin JWT acquired"
@@ -79,7 +157,7 @@ VERSION_STATUS=$(curl -so /dev/null -w "%{http_code}" --max-time 10 "${API}/vers
 if [[ "${VERSION_STATUS}" == "200" ]]; then
   pass "API version endpoint: HTTP ${VERSION_STATUS}"
 else
-  fail "API version endpoint returned HTTP ${VERSION_STATUS}"
+  fail "API version endpoint returned HTTP ${VERSION_STATUS} — host may be down or misconfigured"
 fi
 
 # ---------------------------------------------------------------------------
@@ -93,7 +171,7 @@ FOLDER_JSON=$(curl -sf --max-time 15 \
 
 FOLDER_NAME_RETURNED=$(echo "${FOLDER_JSON}" | jq -r '.name // empty')
 if [[ -z "${FOLDER_NAME_RETURNED}" ]]; then
-  fail "Folder '${FOLDER_NAME}' does not exist — run sftpgo_setup.sh"
+  fail "Virtual folder '${FOLDER_NAME}' does not exist — run sftpgo_setup.sh"
 else
   pass "Folder '${FOLDER_NAME}' exists"
 
@@ -116,21 +194,18 @@ USER_JSON=$(curl -sf --max-time 15 \
 
 USERNAME=$(echo "${USER_JSON}" | jq -r '.username // empty')
 if [[ -z "${USERNAME}" ]]; then
-  fail "User '${SFTPGO_USER}' not found"
-  # Cannot run further user checks
-  FAIL_COUNT=$((FAIL_COUNT + 4))
+  fail "User '${SFTPGO_USER}' not found in SFTPGo"
+  FAIL_COUNT=$((FAIL_COUNT + 4))   # account for skipped sub-checks
 else
   pass "User '${SFTPGO_USER}' found"
 
-  # Status
   U_STATUS=$(echo "${USER_JSON}" | jq -r '.status // 0')
   if [[ "${U_STATUS}" == "1" ]]; then
     pass "User status: active"
   else
-    fail "User status: DISABLED (status=${U_STATUS})"
+    fail "User '${SFTPGO_USER}' is DISABLED (status=${U_STATUS})"
   fi
 
-  # quota_size
   Q_SIZE=$(echo "${USER_JSON}" | jq -r '.quota_size // 0')
   if [[ "${Q_SIZE}" == "${EXPECTED_QUOTA_SIZE}" ]]; then
     pass "quota_size: ${Q_SIZE}"
@@ -138,7 +213,6 @@ else
     fail "quota_size regression — got ${Q_SIZE}, expected ${EXPECTED_QUOTA_SIZE}"
   fi
 
-  # max_upload_file_size
   MUF=$(echo "${USER_JSON}" | jq -r '.max_upload_file_size // 0')
   if [[ "${MUF}" == "${EXPECTED_MAX_UPLOAD}" ]]; then
     pass "max_upload_file_size: ${MUF}"
@@ -146,7 +220,6 @@ else
     fail "max_upload_file_size regression — got ${MUF}, expected ${EXPECTED_MAX_UPLOAD}"
   fi
 
-  # home_dir
   HOME_DIR=$(echo "${USER_JSON}" | jq -r '.home_dir // empty')
   if [[ "${HOME_DIR}" == "${FOLDER_LOCAL_PATH}" ]]; then
     pass "home_dir: ${HOME_DIR}"
@@ -199,7 +272,7 @@ if [[ -n "${SFTPGO_USER_PASS:-}" ]]; then
   if [[ -n "${USER_TOKEN}" ]]; then
     pass "User JWT acquired for '${SFTPGO_USER}'"
   else
-    fail "User '${SFTPGO_USER}' could not obtain JWT (wrong password or account locked)"
+    fail "User '${SFTPGO_USER}' could not obtain JWT — wrong password or account locked"
   fi
 else
   warn "SFTPGO_USER_PASS not set — skipping user-level auth check"

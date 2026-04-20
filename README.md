@@ -45,6 +45,8 @@ It performs 7 sequential checks against the live SFTPGo instance:
 | 5 | User quota assertions | `quota_size`, `max_upload_file_size` changed |
 | 6 | Idempotency via `validate_api.sh` | End-to-end regression across all checks |
 | 7 | Quota scan trigger | Scan endpoint broken or returning errors |
+| 8 | File GitHub issue | Fires automatically on push failures; deduplicates open issues |
+| 9 | Close resolved issues | Auto-closes prior regression issues when CI goes green again |
 
 ### Required GitHub Secrets
 
@@ -56,6 +58,19 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `SFTPGO_USER_PASS` | SFTPGo `jofthev` user password |
 
 The workflow never prints these values — the admin token is masked with `::add-mask::` immediately after acquisition.
+
+The `GITHUB_TOKEN` secret is automatically available in Actions — no manual setup needed for issue filing.
+
+### Issue filing behavior
+
+When any check fails on a push to `master`:
+
+- `validate_api.sh` writes a structured Markdown report to `/tmp/sftpgo_failure_report.md`
+- `file_issue.sh` reads the report and posts a labeled GitHub issue (`regression` + `sftpgo` + `automated`)
+- If an open regression issue already exists, a **comment** is added instead of filing a duplicate
+- When CI next passes, `file_issue.sh --resolve` auto-closes the open issue with a resolution note
+
+Issues are only filed for pushes to `master` — PR runs report inline only (no issue noise).
 
 ### Trigger manually
 

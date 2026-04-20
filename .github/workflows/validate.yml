@@ -5,11 +5,11 @@ on:
     branches: ["master", "main"]
   pull_request:
     branches: ["master", "main"]
-  workflow_dispatch:        # allow manual trigger from Actions tab
+  workflow_dispatch:
 
 concurrency:
   group: sftpgo-validate-${{ github.ref }}
-  cancel-in-progress: true  # avoid racing simultaneous pushes against the live API
+  cancel-in-progress: true
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -30,14 +30,20 @@ jobs:
       - name: Lint validate_api.sh
         run: shellcheck -S warning validate_api.sh
 
+      - name: Lint file_issue.sh
+        run: shellcheck -S warning file_issue.sh
+
   # ---------------------------------------------------------------------------
   # Job 2: Live API validation against neoncovenant.appboxes.co
-  # Requires secrets: SFTPGO_ADMIN_PASS, SFTPGO_USER_PASS
   # ---------------------------------------------------------------------------
   api-validate:
     name: Live API Checks
     runs-on: ubuntu-latest
-    needs: lint                 # only run if shellcheck passes
+    needs: lint
+    # Always run the final steps so we can file/resolve issues even on failure
+    permissions:
+      issues: write
+      contents: read
     env:
       SFTPGO_ADMIN_URL: "https://neoncovenant.appboxes.co"
       ADMIN_USER: "admin"
@@ -45,8 +51,10 @@ jobs:
       FOLDER_NAME: "jofthev_data"
       FOLDER_LOCAL_PATH: "/home/appbox/data/jofthev"
       FOLDER_VIRTUAL_PATH: "/data"
-      EXPECTED_QUOTA_SIZE: "1073741824"     # 1 GiB
-      EXPECTED_MAX_UPLOAD: "1073741824"     # 1 GiB
+      EXPECTED_QUOTA_SIZE: "1073741824"
+      EXPECTED_MAX_UPLOAD: "1073741824"
+      REPORT_FILE: "/tmp/sftpgo_failure_report.md"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +63,7 @@ jobs:
         run: sudo apt-get install -y curl jq
 
       # -----------------------------------------------------------------------
-      # Step 1: Auth regression — verify admin token endpoint responds
+      # Step 1: Auth
       # -----------------------------------------------------------------------
       - name: "[1] Auth — obtain admin JWT"
         id: auth
@@ -71,30 +79,28 @@ jobs:
 
           if [[ -z "${TOKEN}" ]]; then
             echo "::error::Auth failed — no access_token in response"
-            echo "Response: ${RESPONSE}"
             exit 1
           fi
 
-          # Mask token in all subsequent log output
           echo "::add-mask::${TOKEN}"
           echo "ADMIN_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
           echo "Admin auth: OK"
 
       # -----------------------------------------------------------------------
-      # Step 2: Host reachability — confirm API version endpoint is alive
+      # Step 2: Reachability
       # -----------------------------------------------------------------------
       - name: "[2] Reachability — API version check"
         run: |
           STATUS=$(curl -so /dev/null -w "%{http_code}" --max-time 10 \
             "${SFTPGO_ADMIN_URL}/api/v2/version")
           if [[ "${STATUS}" != "200" ]]; then
-            echo "::error::API version endpoint returned HTTP ${STATUS} — host may be down"
+            echo "::error::API version endpoint returned HTTP ${STATUS}"
             exit 1
           fi
           echo "Host reachable: HTTP ${STATUS}"
 
       # -----------------------------------------------------------------------
-      # Step 3: Virtual folder existence check
+      # Step 3: Virtual folder existence
       # -----------------------------------------------------------------------
       - name: "[3] Virtual folder — confirm '${FOLDER_NAME}' exists"
         run: |
@@ -109,12 +115,12 @@ jobs:
               echo "::warning::Mapped path mismatch — got '${MAPPED}', expected '${FOLDER_LOCAL_PATH}'"
             fi
           else
-            echo "::error::Virtual folder '${FOLDER_NAME}' not found. Run sftpgo_setup.sh to create it."
+            echo "::error::Virtual folder '${FOLDER_NAME}' not found"
             exit 1
           fi
 
       # -----------------------------------------------------------------------
-      # Step 4: User existence + quota assertions
+      # Step 4: User quota assertions
       # -----------------------------------------------------------------------
       - name: "[4] User config — quota and virtual folder assertions"
         run: |
@@ -122,120 +128,123 @@ jobs:
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SFTPGO_ADMIN_URL}/api/v2/users/${SFTPGO_USER}")
 
-          # Check user was returned
           USERNAME=$(echo "${USER_JSON}" | jq -r '.username // empty')
           if [[ -z "${USERNAME}" ]]; then
-            echo "::error::User '${SFTPGO_USER}' not found in SFTPGo"
+            echo "::error::User '${SFTPGO_USER}' not found"
             exit 1
           fi
 
           PASS=true
 
-          # -- quota_size
           QUOTA_SIZE=$(echo "${USER_JSON}" | jq -r '.quota_size // 0')
-          if [[ "${QUOTA_SIZE}" != "${EXPECTED_QUOTA_SIZE}" ]]; then
-            echo "::error::quota_size regression: got ${QUOTA_SIZE}, expected ${EXPECTED_QUOTA_SIZE}"
-            PASS=false
-          else
-            echo "quota_size: ${QUOTA_SIZE} ✓"
-          fi
+          [[ "${QUOTA_SIZE}" == "${EXPECTED_QUOTA_SIZE}" ]] \
+            && echo "quota_size: ${QUOTA_SIZE} ✓" \
+            || { echo "::error::quota_size regression: got ${QUOTA_SIZE}, expected ${EXPECTED_QUOTA_SIZE}"; PASS=false; }
 
-          # -- max_upload_file_size
           MAX_UPLOAD=$(echo "${USER_JSON}" | jq -r '.max_upload_file_size // 0')
-          if [[ "${MAX_UPLOAD}" != "${EXPECTED_MAX_UPLOAD}" ]]; then
-            echo "::error::max_upload_file_size regression: got ${MAX_UPLOAD}, expected ${EXPECTED_MAX_UPLOAD}"
-            PASS=false
-          else
-            echo "max_upload_file_size: ${MAX_UPLOAD} ✓"
-          fi
+          [[ "${MAX_UPLOAD}" == "${EXPECTED_MAX_UPLOAD}" ]] \
+            && echo "max_upload_file_size: ${MAX_UPLOAD} ✓" \
+            || { echo "::error::max_upload_file_size regression: got ${MAX_UPLOAD}, expected ${EXPECTED_MAX_UPLOAD}"; PASS=false; }
 
-          # -- virtual folder assigned
-          VF_COUNT=$(echo "${USER_JSON}" | jq '[.virtual_folders[]? | select(.name == env.FOLDER_NAME)] | length')
-          if [[ "${VF_COUNT}" -lt 1 ]]; then
-            echo "::error::Virtual folder '${FOLDER_NAME}' not assigned to user '${SFTPGO_USER}'"
-            PASS=false
-          else
-            echo "virtual_folder '${FOLDER_NAME}' assigned ✓"
-          fi
+          VF_COUNT=$(echo "${USER_JSON}" | jq --arg fn "${FOLDER_NAME}" \
+            '[.virtual_folders[]? | select(.name == $fn)] | length')
+          [[ "${VF_COUNT}" -ge 1 ]] \
+            && echo "virtual_folder '${FOLDER_NAME}' assigned ✓" \
+            || { echo "::error::Virtual folder '${FOLDER_NAME}' not assigned to user"; PASS=false; }
 
-          # -- virtual folder path
-          VF_PATH=$(echo "${USER_JSON}" | jq -r \
-            --arg fn "${FOLDER_NAME}" \
+          VF_PATH=$(echo "${USER_JSON}" | jq -r --arg fn "${FOLDER_NAME}" \
             '.virtual_folders[]? | select(.name == $fn) | .virtual_path // empty')
-          if [[ "${VF_PATH}" != "${FOLDER_VIRTUAL_PATH}" ]]; then
-            echo "::error::Virtual path mismatch: got '${VF_PATH}', expected '${FOLDER_VIRTUAL_PATH}'"
-            PASS=false
-          else
-            echo "virtual_path: ${VF_PATH} ✓"
-          fi
+          [[ "${VF_PATH}" == "${FOLDER_VIRTUAL_PATH}" ]] \
+            && echo "virtual_path: ${VF_PATH} ✓" \
+            || { echo "::error::virtual_path mismatch: got '${VF_PATH}', expected '${FOLDER_VIRTUAL_PATH}'"; PASS=false; }
 
-          # -- virtual folder quota_size
-          VF_QUOTA=$(echo "${USER_JSON}" | jq -r \
-            --arg fn "${FOLDER_NAME}" \
+          VF_QUOTA=$(echo "${USER_JSON}" | jq -r --arg fn "${FOLDER_NAME}" \
             '.virtual_folders[]? | select(.name == $fn) | .quota_size // 0')
-          if [[ "${VF_QUOTA}" != "${EXPECTED_QUOTA_SIZE}" ]]; then
-            echo "::error::Virtual folder quota_size regression: got ${VF_QUOTA}, expected ${EXPECTED_QUOTA_SIZE}"
-            PASS=false
-          else
-            echo "virtual_folder quota_size: ${VF_QUOTA} ✓"
-          fi
+          [[ "${VF_QUOTA}" == "${EXPECTED_QUOTA_SIZE}" ]] \
+            && echo "virtual_folder quota_size: ${VF_QUOTA} ✓" \
+            || { echo "::error::Virtual folder quota_size regression: got ${VF_QUOTA}, expected ${EXPECTED_QUOTA_SIZE}"; PASS=false; }
 
-          # -- user status active
           STATUS=$(echo "${USER_JSON}" | jq -r '.status // 0')
-          if [[ "${STATUS}" != "1" ]]; then
-            echo "::error::User '${SFTPGO_USER}' is disabled (status=${STATUS})"
-            PASS=false
-          else
-            echo "user status: active ✓"
-          fi
+          [[ "${STATUS}" == "1" ]] \
+            && echo "user status: active ✓" \
+            || { echo "::error::User '${SFTPGO_USER}' is disabled (status=${STATUS})"; PASS=false; }
 
-          if [[ "${PASS}" != "true" ]]; then
-            exit 1
-          fi
+          [[ "${PASS}" == "true" ]] || exit 1
 
       # -----------------------------------------------------------------------
-      # Step 5: Idempotency — run setup script in dry-run mode (no ADMIN_PASS)
-      #         Just validate it parses + reaches auth step cleanly
+      # Step 5: validate_api.sh end-to-end — produces structured report on failure
       # -----------------------------------------------------------------------
-      - name: "[5] Idempotency — validate_api.sh end-to-end regression"
+      - name: "[5] validate_api.sh — end-to-end regression"
+        id: validate
         env:
           ADMIN_PASS: ${{ secrets.SFTPGO_ADMIN_PASS }}
           SFTPGO_USER_PASS: ${{ secrets.SFTPGO_USER_PASS }}
         run: bash validate_api.sh
 
       # -----------------------------------------------------------------------
-      # Step 6: Quota scan — trigger a rescan and confirm it starts cleanly
+      # Step 6: Quota scan
       # -----------------------------------------------------------------------
       - name: "[6] Quota scan — trigger and verify acceptance"
         run: |
-          SCAN_RESPONSE=$(curl -sf --max-time 20 -X POST \
+          SCAN_HTTP=$(curl -so /dev/null -w "%{http_code}" --max-time 20 -X POST \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SFTPGO_ADMIN_URL}/api/v2/quotas/users/${SFTPGO_USER}/scan" || echo "FAILED")
+            "${SFTPGO_ADMIN_URL}/api/v2/quotas/users/${SFTPGO_USER}/scan" || echo "000")
 
-          if [[ "${SCAN_RESPONSE}" == "FAILED" ]]; then
-            echo "::error::Quota scan request failed for user '${SFTPGO_USER}'"
-            exit 1
-          fi
-
-          # SFTPGo returns 202 Accepted or a conflict if scan already running
-          echo "Quota scan response: ${SCAN_RESPONSE}"
-          echo "Quota scan: accepted ✓"
+          case "${SCAN_HTTP}" in
+            200|202|409) echo "Quota scan: HTTP ${SCAN_HTTP} ✓" ;;
+            *) echo "::error::Quota scan returned unexpected HTTP ${SCAN_HTTP}"; exit 1 ;;
+          esac
 
       # -----------------------------------------------------------------------
-      # Step 7: Summary output
+      # Step 7: Step summary (always runs)
       # -----------------------------------------------------------------------
-      - name: "[7] Summary"
+      - name: "[7] Step summary"
         if: always()
         run: |
-          echo "## SFTPGo Validation Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Admin auth | See step 1 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Host reachable | See step 2 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Virtual folder exists | See step 3 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Quota regression | See step 4 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Idempotency (validate_api.sh) | See step 5 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Quota scan | See step 6 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Host: \`${SFTPGO_ADMIN_URL}\` | User: \`${SFTPGO_USER}\` | Folder: \`${FOLDER_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          STATUS_ICON="${{ job.status == 'success' && '✅' || '❌' }}"
+          {
+            echo "## ${STATUS_ICON} SFTPGo Validation — ${{ job.status }}"
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Shellcheck lint | ${{ needs.lint.result }} |"
+            echo "| Admin auth | See step 1 |"
+            echo "| Host reachable | See step 2 |"
+            echo "| Virtual folder exists | See step 3 |"
+            echo "| Quota regression | See step 4 |"
+            echo "| validate_api.sh | See step 5 |"
+            echo "| Quota scan | See step 6 |"
+            echo ""
+            echo "**Host:** \`${SFTPGO_ADMIN_URL}\` | **User:** \`${SFTPGO_USER}\` | **Folder:** \`${FOLDER_NAME}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # -----------------------------------------------------------------------
+      # Step 8: File GitHub issue on failure (only on push to master, not PRs)
+      # -----------------------------------------------------------------------
+      - name: "[8] File regression issue"
+        if: |
+          failure() &&
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        env:
+          ADMIN_PASS: ${{ secrets.SFTPGO_ADMIN_PASS }}
+          SFTPGO_USER_PASS: ${{ secrets.SFTPGO_USER_PASS }}
+        run: |
+          # Re-run validate_api.sh in report-only mode if the report wasn't
+          # generated yet (e.g. failure happened in steps 1-4 or 6 before
+          # validate_api.sh ran). Suppress exit code — we just want the report.
+          if [[ ! -s "${REPORT_FILE}" ]]; then
+            echo "Report not found — generating via validate_api.sh (best effort)..."
+            bash validate_api.sh || true
+          fi
+          bash file_issue.sh
+
+      # -----------------------------------------------------------------------
+      # Step 9: Close resolved issues on success (only on push to master)
+      # -----------------------------------------------------------------------
+      - name: "[9] Close resolved regression issues"
+        if: |
+          success() &&
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        run: bash file_issue.sh --resolve
