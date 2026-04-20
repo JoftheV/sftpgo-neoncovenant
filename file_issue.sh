@@ -16,9 +16,12 @@
 #   file_issue.sh --resolve    — close any open auto-filed issues (called on success)
 #
 # Required env:
-#   GH_TOKEN       — GitHub token with issues:write (auto-set in Actions as GITHUB_TOKEN)
-#   GITHUB_REPOSITORY — e.g. JoftheV/sftpgo-neoncovenant (auto-set in Actions)
-#   REPORT_FILE    — path to the markdown report from validate_api.sh
+#   GH_TOKEN            — GitHub token with issues:write + contents:write
+#                         (auto-set in Actions as GITHUB_TOKEN)
+#   GITHUB_REPOSITORY   — e.g. JoftheV/sftpgo-neoncovenant (auto-set in Actions)
+#   GITHUB_SHA          — commit SHA of the current run (auto-set in Actions)
+#   REPORT_FILE         — path to the markdown report from validate_api.sh
+#   SFTPGO_ADMIN_URL    — used in the commit comment body (optional, has default)
 # =============================================================================
 
 set -euo pipefail
@@ -54,13 +57,44 @@ if [[ "${1:-}" == "--resolve" ]]; then
     exit 0
   fi
 
+  CLOSED_ISSUES=()
+
   while IFS= read -r ISSUE_NUM; do
     echo "Closing issue #${ISSUE_NUM} (CI is green again)..."
     gh issue close "${ISSUE_NUM}" \
       --repo "${REPO}" \
       --comment "**CI passed on [run #${RUN_NUMBER}](${RUN_URL})** (commit \`${SHORT_SHA}\`). Closing automatically — regression resolved."
     echo "  Closed #${ISSUE_NUM}"
+    CLOSED_ISSUES+=("${ISSUE_NUM}")
   done <<< "${OPEN_ISSUES}"
+
+  # -------------------------------------------------------------------------
+  # Ping via commit comment on the green SHA so it shows up in the
+  # commit timeline and notifies @JoftheV directly.
+  # -------------------------------------------------------------------------
+  if [[ "${#CLOSED_ISSUES[@]}" -gt 0 ]]; then
+    # Build a compact list of closed issue links for the comment body
+    ISSUE_LINKS=""
+    for N in "${CLOSED_ISSUES[@]}"; do
+      ISSUE_LINK="${SERVER_URL}/${REPO}/issues/${N}"
+      ISSUE_LINKS+="- Closed #${N}: ${ISSUE_LINK}"$'\n'
+    done
+
+    COMMIT_COMMENT_BODY="@JoftheV — SFTPGo regression resolved ✅
+
+CI run [#${RUN_NUMBER}](${RUN_URL}) passed on commit \`${SHORT_SHA}\` and auto-closed the following regression issue(s):
+
+${ISSUE_LINKS}
+All 7 validation checks passed against \`${SFTPGO_ADMIN_URL:-https://neoncovenant.appboxes.co}\`. No action needed."
+
+    echo "Posting commit comment on ${SHA}..."
+    gh api \
+      --method POST \
+      -H "Accept: application/vnd.github+json" \
+      "/repos/${REPO}/commits/${SHA}/comments" \
+      -f body="${COMMIT_COMMENT_BODY}"
+    echo "  Commit comment posted on ${SHORT_SHA}"
+  fi
 
   exit 0
 fi

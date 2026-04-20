@@ -43,7 +43,7 @@ jobs:
     # Always run the final steps so we can file/resolve issues even on failure
     permissions:
       issues: write
-      contents: read
+      contents: write   # required for POST /commits/{sha}/comments
     env:
       SFTPGO_ADMIN_URL: "https://neoncovenant.appboxes.co"
       ADMIN_USER: "admin"
