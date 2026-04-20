@@ -195,14 +195,21 @@ jobs:
       # -----------------------------------------------------------------------
       - name: "[7] Step summary"
         if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          LINT_RESULT: ${{ needs.lint.result }}
         run: |
-          STATUS_ICON="${{ job.status == 'success' && '✅' || '❌' }}"
+          if [[ "${JOB_STATUS}" == "success" ]]; then
+            STATUS_ICON="✅"
+          else
+            STATUS_ICON="❌"
+          fi
           {
-            echo "## ${STATUS_ICON} SFTPGo Validation — ${{ job.status }}"
+            echo "## ${STATUS_ICON} SFTPGo Validation — ${JOB_STATUS}"
             echo ""
             echo "| Check | Result |"
             echo "|---|---|"
-            echo "| Shellcheck lint | ${{ needs.lint.result }} |"
+            echo "| Shellcheck lint | ${LINT_RESULT} |"
             echo "| Admin auth | See step 1 |"
             echo "| Host reachable | See step 2 |"
             echo "| Virtual folder exists | See step 3 |"
