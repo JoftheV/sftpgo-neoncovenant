@@ -1,0 +1,17 @@
+# CODEOWNERS — auto-requests @JoftheV as reviewer on every PR.
+# Rules are evaluated bottom-up; last match wins.
+# Dependabot PRs respect CODEOWNERS regardless of the assignee field.
+
+# Default owner for everything in the repo
+*                                   @JoftheV
+
+# GitHub Actions workflow changes
+.github/workflows/                  @JoftheV
+
+# Dependabot config
+.github/dependabot.yml              @JoftheV
+
+# SFTPGo scripts — any change to setup or validation logic
+sftpgo_setup.sh                     @JoftheV
+validate_api.sh                     @JoftheV
+file_issue.sh                       @JoftheV
