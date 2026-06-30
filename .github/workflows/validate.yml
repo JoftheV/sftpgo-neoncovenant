@@ -11,6 +11,12 @@ concurrency:
   group: sftpgo-validate-${{ github.ref }}
   cancel-in-progress: true
 
+# Explicit top-level permissions — overrides repo default for all jobs.
+# Individual jobs may narrow these further but not expand them.
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job 1: Static analysis — no secrets needed, runs fast
