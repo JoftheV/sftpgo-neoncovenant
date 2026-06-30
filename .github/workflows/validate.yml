@@ -21,12 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
       - name: Shellcheck all scripts
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38  # 2.0.0
-        with:
-          severity: warning
-          scandir: "."
-          additional_files: "sftpgo_setup.sh validate_api.sh file_issue.sh"
+        run: shellcheck -S warning sftpgo_setup.sh validate_api.sh file_issue.sh
 
   # ---------------------------------------------------------------------------
   # Job 2: Live API validation against neoncovenant.appboxes.co
