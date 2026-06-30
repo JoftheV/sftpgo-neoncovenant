@@ -75,7 +75,8 @@ FOLDER_PAYLOAD=$(jq -n \
   users: []
 }')
 
-FOLDER_RESPONSE=$(curl -sf -X POST \
+# SC2034: discard response — status checked via HTTP code below
+curl -sf -X POST \
   -H "${AUTH_HEADER}" \
   -H "Content-Type: application/json" \
   -d "${FOLDER_PAYLOAD}" \
