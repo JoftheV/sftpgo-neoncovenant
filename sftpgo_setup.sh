@@ -13,25 +13,24 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # 0. CONFIGURATION — edit these before running
 # ---------------------------------------------------------------------------
-SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co:27580"   # SFTPGo web UI base URL
-ADMIN_USER="admin"                                      # SFTPGo admin username
-ADMIN_PASS="YOUR_ADMIN_PASSWORD"                        # SFTPGo admin password
+# shellcheck disable=SC2034  # vars consumed by jq --arg / --argjson below
+SFTPGO_ADMIN_URL="https://home.neoncovenant.appboxes.co:27580"
+ADMIN_USER="admin"
+ADMIN_PASS="YOUR_ADMIN_PASSWORD"
 
-SFTPGO_USER="jofthev"                                  # SFTPGo user account name
-SFTPGO_USER_PASS="YOUR_USER_PASSWORD"                  # SFTPGo user account password
-SFTPGO_USER_EMAIL="jofthev@neoncovenant.com"           # User email (optional)
+SFTPGO_USER="jofthev"
+SFTPGO_USER_PASS="YOUR_USER_PASSWORD"
+SFTPGO_USER_EMAIL="jofthev@neoncovenant.com"
 
-FOLDER_NAME="jofthev_data"                             # Unique folder identifier in SFTPGo
-FOLDER_LOCAL_PATH="/home/appbox/data/jofthev"          # Absolute path on appbox disk
-FOLDER_VIRTUAL_PATH="/data"                            # Virtual path seen by the SFTP user
+FOLDER_NAME="jofthev_data"
+FOLDER_LOCAL_PATH="/home/appbox/data/jofthev"
+FOLDER_VIRTUAL_PATH="/data"
 
-QUOTA_SIZE_BYTES=$((1 * 1024 * 1024 * 1024))          # 1 GB = 1073741824 bytes
-QUOTA_FILES=0                                          # 0 = unlimited file count
-MAX_UPLOAD_FILE_SIZE=$((1 * 1024 * 1024 * 1024))      # 1 GB per-file upload limit
+QUOTA_SIZE_BYTES=$((1 * 1024 * 1024 * 1024))
+QUOTA_FILES=0
+MAX_UPLOAD_FILE_SIZE=$((1 * 1024 * 1024 * 1024))
 
-# Cloudflare mTLS — your MacBook Pro client cert fingerprint (SHA-256 hex, no colons)
-# Obtain with: openssl x509 -in client.pem -fingerprint -sha256 -noout | sed 's/://g' | cut -d= -f2
-CF_CLIENT_CERT_FINGERPRINT=""   # Leave empty to skip TLS cert pinning on SFTPGo side
+CF_CLIENT_CERT_FINGERPRINT=""   # leave empty to skip TLS cert pinning
 
 API="${SFTPGO_ADMIN_URL}/api/v2"
 
@@ -75,12 +74,12 @@ FOLDER_PAYLOAD=$(jq -n \
   users: []
 }')
 
-# SC2034: discard response — status checked via HTTP code below
+# First attempt — response discarded; status checked via HTTP code below
 curl -sf -X POST \
   -H "${AUTH_HEADER}" \
   -H "Content-Type: application/json" \
   -d "${FOLDER_PAYLOAD}" \
-  "${API}/folders" || true)
+  "${API}/folders" > /dev/null 2>&1 || true
 
 # If folder already exists (409), fetch existing — otherwise check for errors
 HTTP_STATUS=$(curl -so /dev/null -w "%{http_code}" -X POST \
